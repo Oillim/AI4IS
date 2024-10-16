@@ -1,8 +1,9 @@
 import joblib
 import pandas as pd
+import os
 
-model = joblib.load('spam_classifier.pkl')
-cv = joblib.load('spam_vectorizer.pkl')
+pipeline = joblib.load('spam_pipeline.pkl')
+
 if __name__ == '__main__':
     print('Select function:')
     print('1. Check email immediately.')
@@ -13,20 +14,21 @@ if __name__ == '__main__':
         subject = input('Enter email subject: ')
         message = input('Enter email message: ')
         text = pd.DataFrame(columns=['Text'], data=[subject + " " + message])
-        text_cv = cv.transform(text.Text)
-        if model.predict(text_cv)[0] == 1:
+        if pipeline.predict(text)[0] == 1:
             print('\nThis is Spam email.')
         else:
             print('\nThis is not Spam email.')
     elif choice == '2':
         file_path = input('Enter file path: ')
+        if not file_path.endswith('.csv') and not os.path.exists(file_path):
+            print('Invalid file.')
+            exit()
         df = pd.read_csv(file_path)
-        df.drop(['Spam/Ham', 'split'], axis=1, inplace=True)
+        df.drop(['Spam/Ham', 'split', 'Message ID'], axis=1, inplace=True)
         df = df[~(df['Subject'].isnull() & df['Message'].isnull())]
         df.fillna('', inplace=True)
         df['Text'] = df['Subject'] + " " + df['Message']
-        text_cv = cv.transform(df['Text'])
-        pred = model.predict(text_cv)
+        pred = pipeline.predict(df.Text)
         for i in range(len(pred)):
             if pred[i] == 1:
                 print(f'{df.iloc[i, 0]} is Spam email.')
