@@ -19,15 +19,19 @@ if __name__ == '__main__':
         else:
             print('\nThis is not Spam email.')
     elif choice == '2':
+        #Load data
         file_path = input('Enter file path: ')
         if not file_path.endswith('.csv') and not os.path.exists(file_path):
             print('Invalid file.')
             exit()
+        #Preprocess data
         df = pd.read_csv(file_path)
-        df.drop(['Spam/Ham', 'split', 'Message ID'], axis=1, inplace=True)
+        df = df[['Message ID','Subject', 'Message']]
         df = df[~(df['Subject'].isnull() & df['Message'].isnull())]
         df.fillna('', inplace=True)
         df['Text'] = df['Subject'] + " " + df['Message']
+
+        #Predict
         pred = pipeline.predict(df.Text)
         for i in range(len(pred)):
             if pred[i] == 1:
