@@ -24,6 +24,7 @@ if __name__ == '__main__':
         if not file_path.endswith('.csv') and not os.path.exists(file_path):
             print('Invalid file.')
             exit()
+            
         #Preprocess data
         df = pd.read_csv(file_path)
         df = df[['Message ID','Subject', 'Message']]
