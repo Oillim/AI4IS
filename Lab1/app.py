@@ -24,21 +24,27 @@ if __name__ == '__main__':
         if not file_path.endswith('.csv') and not os.path.exists(file_path):
             print('Invalid file.')
             exit()
-            
+
         #Preprocess data
         df = pd.read_csv(file_path)
-        df = df[['Message ID','Subject', 'Message']]
+        df = df[['Message ID','Subject', 'Message', 'Spam/Ham']]
         df = df[~(df['Subject'].isnull() & df['Message'].isnull())]
         df.fillna('', inplace=True)
         df['Text'] = df['Subject'] + " " + df['Message']
-
+        df.drop(['Subject', 'Message'], axis=1, inplace=True)
         #Predict
         pred = pipeline.predict(df.Text)
-        for i in range(len(pred)):
-            if pred[i] == 1:
-                print(f'{df.iloc[i, 0]} is Spam email.')
-            else:
-                print(f'{df.iloc[i, 0]} is not Spam email.')
+        # for i in range(len(pred)):
+        #     if pred[i] == 1:
+        #         print(f'{df.iloc[i, 0]} is Spam email.')
+        #     else:
+        #         print(f'{df.iloc[i, 0]} is not Spam email.')
+        
+        #Save to output.csv
+        df['Spam'] = pred
+        df = df[['Message ID', 'Text', 'Spam/Ham', 'Spam']]
+        df.to_csv('output.csv', index=False)
+        print(df)
     elif choice == '3':
         print('Exiting...')
     else:
