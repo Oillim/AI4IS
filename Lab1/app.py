@@ -1,4 +1,5 @@
 import joblib
+from sklearn.metrics import accuracy_score, classification_report
 import pandas as pd
 import os
 
@@ -32,8 +33,11 @@ if __name__ == '__main__':
         df.fillna('', inplace=True)
         df['Text'] = df['Subject'] + " " + df['Message']
         df.drop(['Subject', 'Message'], axis=1, inplace=True)
+
+        y = df['Spam/Ham'].map({'spam': 1, 'ham': 0})
+
         #Predict
-        pred = pipeline.predict(df.Text)
+        y_pred = pd.Series(pipeline.predict(df.Text))
         # for i in range(len(pred)):
         #     if pred[i] == 1:
         #         print(f'{df.iloc[i, 0]} is Spam email.')
@@ -41,10 +45,12 @@ if __name__ == '__main__':
         #         print(f'{df.iloc[i, 0]} is not Spam email.')
         
         #Save to output.csv
-        df['Spam'] = pred
-        df = df[['Message ID', 'Text', 'Spam/Ham', 'Spam']]
+        df['Spam/Ham Predict'] = y_pred.map({1: 'spam', 0: 'ham'})
+        df = df[['Message ID', 'Spam/Ham', 'Spam/Ham Predict']]
+        print('Accuracy:', accuracy_score(y, y_pred))
+        print(classification_report(y, y_pred, digits=4))
         df.to_csv('output.csv', index=False)
-        print(df)
+        print('Output saved to output.csv')
     elif choice == '3':
         print('Exiting...')
     else:
