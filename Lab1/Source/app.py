@@ -18,7 +18,7 @@ if __name__ == '__main__':
     if choice == '1':
         subject = input('Enter email subject: ')
         message = input('Enter email message: ')
-        text = [subject + " " + message]
+        text = [subject + "" + message]
         if pipeline.predict(text)[0] == 1:
             print('\nThis is a Spam email.')
         else:
@@ -27,6 +27,7 @@ if __name__ == '__main__':
     elif choice == '2':
         #Load data
         file_path = input('Enter file path: ')
+        file_path = file_path.strip()
         if not (file_path.endswith('.csv') and os.path.exists(file_path)):
             print('Invalid file.')
             exit()
