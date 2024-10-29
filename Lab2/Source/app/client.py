@@ -8,11 +8,15 @@ import hmac
 import numpy as np
 import pickle
 import tensorflow as tf
-from tensorflow.keras.datasets import mnist
 from skimage.feature import hog
 from skimage.color import rgb2gray
+import sys
 
 
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import data_processing as dp
+import feature_extraction as fe
 class FederatedClientCallback(tf.keras.callbacks.Callback):
     def __init__(self, model, server_ip, client_index):
         super().__init__()
@@ -144,104 +148,39 @@ class FederatedClientCallback(tf.keras.callbacks.Callback):
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Flatten, Input
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.keras.optimizers import Adam
 
-def create_model():
+BATCH_SIZE = 32
+N_EPOCHS = 10
+LR = 0.005
+
+def create_model(n_features):
     """Creates a simple neural network model."""
     model = Sequential([
-        Input(shape=(324,)),
+        Input(shape=(n_features)),
         Flatten(),
         Dense(10, activation='softmax')
     ])
-    model.compile(optimizer='adam', loss=SparseCategoricalCrossentropy(from_logits=False), metrics=['accuracy'])
+    model.compile(optimizer=Adam(learning_rate=LR), loss=SparseCategoricalCrossentropy(from_logits=False), metrics=['accuracy'])
     return model
-
-normalize = True          
-block_norm = 'L2-Hys'     
-orientations = 9          
-pixels_per_cell = [8, 8]  
-cells_per_block = [2, 2]  
-
-def feature_extraction(x):
-    """Extracts features using Histogram of Oriented Gradients (HOG)."""
-    return hog(x, orientations, pixels_per_cell, cells_per_block, block_norm, visualize=False, transform_sqrt=normalize)
-
-def preprocess_data(x_train, y_train, x_val, y_val):
-    """Processes data to prepare for training."""
-    _x_train = np.array([feature_extraction(x_train[i]) for i in range(len(x_train))])
-    _y_train = np.array([y_train[i] for i in range(len(y_train))])
-
-    _x_val = np.array([feature_extraction(x_val[i]) for i in range(len(x_val))])
-    _y_val = np.array([y_val[i] for i in range(len(y_val))])
-
-    return (_x_train, _y_train), (_x_val, _y_val)
-
-import numpy as np
-
-def split_data(x, y, client_index):
-    client_classes = {
-        0: [0, 1, 2, 3, 4],   # Classes for client 0
-        1: [1, 2, 3, 4, 5, 6, 7, 8, 9],  # Classes for client 1
-        2: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Classes for client 2
-    }
-
-    client_data = {
-        0: {"x": [], "y": []},  # Data for client 0
-        1: {"x": [], "y": []},  # Data for client 1
-        2: {"x": [], "y": []}   # Data for client 2
-    }
-
-    if client_index not in client_data:
-        raise ValueError("Invalid client index")
-    
-    for class_id in np.unique(y):
-        class_indices = np.where(y == class_id)[0]
-        
-        clients_with_class = [client for client, classes in client_classes.items() if class_id in classes]
-        num_clients = len(clients_with_class)
-
-        np.random.shuffle(class_indices)
-        split_indices = np.array_split(class_indices, num_clients)
-
-        for client, indices in zip(clients_with_class, split_indices):
-            client_data[client]["x"].append(x[indices])
-            client_data[client]["y"].append(y[indices])
-
-    x_client = np.concatenate(client_data[client_index]["x"], axis=0)
-    y_client = np.concatenate(client_data[client_index]["y"], axis=0)
-
-    # shuffle
-    indices = np.random.permutation(len(x_client))
-    x_client = x_client[indices]
-    y_client = y_client[indices]
-
-    train_size = int(0.9 * len(x_client))
-    x_train, x_val = x_client[:train_size], x_client[train_size:]
-    y_train, y_val = y_client[:train_size], y_client[train_size:]
-
-    print(f"Client {client_index} - x_train shape: {x_train.shape}, y_train shape: {y_train.shape}")
-    print(f"Client {client_index} - x_val shape: {x_val.shape}, y_val shape: {y_val.shape}")
-
-    return (x_train, y_train), (x_val, y_val)
-
-
 
 def train_client(server_ip, client_index):
     """Loads data, preprocesses, creates model, and starts training with federated callback."""
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
-    (x_train, y_train), (x_val, y_val) = split_data(x_train, y_train, client_index)
+    (x_train, y_train), (_, _) = dp.load_data_keras("../../Data")
+    (x_train, y_train), (x_val, y_val) = dp.split_data(x_train, y_train, client_index)
 
-    x_train = [ rgb2gray(x_train[i]) for i in range(len(x_train))]
-    x_val = [ rgb2gray(x_val[i]) for i in range(len(x_val))]
-
-    (x_train, y_train), (x_val, y_val) = preprocess_data(x_train, y_train, x_val, y_val)
-    model = create_model()
+    #(x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val)
+    
+    (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val) 
+    n_features = x_train.shape[1:]
+    model = create_model(n_features)
     client_callback = FederatedClientCallback(model, server_ip, client_index)
 
     model.fit(
         x_train,
         y_train,
-        batch_size=32,
-        epochs=3,
+        batch_size=BATCH_SIZE,
+        epochs=N_EPOCHS,
         validation_data=(x_val, y_val),
         callbacks=[client_callback]
     )

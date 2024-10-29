@@ -3,7 +3,9 @@ import numpy as np
 import torch
 import os
 from keras.src import backend
+from tensorflow import distribute
 #unpickle the data from the file
+
 def load_batch(fpath, label_key="labels"):
     """Internal utility for parsing CIFAR data.
 
@@ -58,24 +60,28 @@ def load_data_keras(path):
 
     return (x_train, y_train), (x_test, y_test)        
 
-def split_data(x, y):
+def split_data(x, y, client_index):
     client_classes = {
-        "client1": [0, 1, 2, 3, 4],
-        "client2": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        "client3": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        0: [0, 1, 2, 3, 4],   # Classes for client 0
+        1: [1, 2, 3, 4, 5, 6, 7, 8, 9],  # Classes for client 1
+        2: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Classes for client 2
     }
 
     client_data = {
-        "client1": {"x": [], "y": []},
-        "client2": {"x": [], "y": []},
-        "client3": {"x": [], "y": []}
+        0: {"x": [], "y": []},  # Data for client 0
+        1: {"x": [], "y": []},  # Data for client 1
+        2: {"x": [], "y": []}   # Data for client 2
     }
 
+    if client_index not in client_data:
+        raise ValueError("Invalid client index")
+    
     for class_id in np.unique(y):
-
         class_indices = np.where(y == class_id)[0]
+        
         clients_with_class = [client for client, classes in client_classes.items() if class_id in classes]
         num_clients = len(clients_with_class)
+
         np.random.shuffle(class_indices)
         split_indices = np.array_split(class_indices, num_clients)
 
@@ -83,14 +89,22 @@ def split_data(x, y):
             client_data[client]["x"].append(x[indices])
             client_data[client]["y"].append(y[indices])
 
-    for client in client_data:
-        client_data[client]["x"] = np.concatenate(client_data[client]["x"], axis=0)
-        client_data[client]["y"] = np.concatenate(client_data[client]["y"], axis=0)
+    x_client = np.concatenate(client_data[client_index]["x"], axis=0)
+    y_client = np.concatenate(client_data[client_index]["y"], axis=0)
 
-    for client in client_data:
-        print(f"{client} - x shape: {client_data[client]['x'].shape}, y shape: {client_data[client]['y'].shape}")
-    
-    return client_data
+    # shuffle
+    indices = np.random.permutation(len(x_client))
+    x_client = x_client[indices]
+    y_client = y_client[indices]
+
+    train_size = int(0.9 * len(x_client))
+    x_train, x_val = x_client[:train_size], x_client[train_size:]
+    y_train, y_val = y_client[:train_size], y_client[train_size:]
+
+    print(f"Client {client_index} - x_train shape: {x_train.shape}, y_train shape: {y_train.shape}")
+    print(f"Client {client_index} - x_val shape: {x_val.shape}, y_val shape: {y_val.shape}")
+
+    return (x_train, y_train), (x_val, y_val)
 
 if __name__ == "__main__":
     print("Load CIFAR10 from local...")

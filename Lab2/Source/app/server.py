@@ -11,10 +11,18 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Flatten, Input
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.keras.optimizers import Adam
 from skimage.feature import hog
 from config import SEND_RECEIVE_CONF as SRC
 from skimage.color import rgb2gray
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import data_processing as dp
+import feature_extraction as fe
+
+LR = 0.005
 
 class FederatedServer:
     """Server for Federated Learning without local training."""
@@ -167,45 +175,27 @@ class FederatedServer:
         self._server_socket.close()
 
 
-def create_model():
+
+def create_model(n_features):
     model = Sequential([
-        Input(shape=(324,)),
+        Input(shape=(n_features)),
         Flatten(),
         Dense(10, activation='softmax')
     ])
-    model.compile(optimizer='adam', loss=SparseCategoricalCrossentropy(from_logits=False), metrics=['accuracy'])
+    model.compile(optimizer=Adam(learning_rate=LR), loss=SparseCategoricalCrossentropy(from_logits=False), metrics=['accuracy'])
     return model
 
-normalize = True          
-block_norm = 'L2-Hys'     
-orientations = 9          
-pixels_per_cell = [8, 8]  
-cells_per_block = [2, 2]  
-
-def feature_extraction(x):
-    """Extracts features using Histogram of Oriented Gradients (HOG)."""
-    return hog(x, orientations, pixels_per_cell, cells_per_block, block_norm, visualize=False, transform_sqrt=normalize)
-
-def preprocess_data(x_train, y_train, x_test, y_test):
-    """Processes data to prepare for training."""
-    _x_train = np.array([feature_extraction(x_train[i]) for i in range(len(x_train))])
-    _y_train = np.array([y_train[i] for i in range(len(y_train))])
-
-    _x_test = np.array([feature_extraction(x_test[i]) for i in range(len(x_test))])
-    _y_test = np.array([y_test[i] for i in range(len(y_test))])
-
-    return (_x_train, _y_train), (_x_test, _y_test)
 
 
 def train_server(server_ip):
-    (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
-    x_train = [ rgb2gray(x_train[i]) for i in range(len(x_train))]
-    x_test = [ rgb2gray(x_test[i]) for i in range(len(x_test))]
-    (x_train, y_train), (x_test, y_test) = preprocess_data(x_train, y_train, x_test, y_test)
+    (x_train, y_train), (x_test, y_test) = dp.load_data_keras("../../Data")
+    #(x_train, y_train), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test)
+
+    (x_train, y_train), (x_test, y_test) = fe.ResnetPreprocess(x_train, y_train, x_test, y_test)
     x_val = x_test[x_test.shape[0] // 2:]
     y_val = y_test[y_test.shape[0] // 2:]
-
-    model = create_model()
+    n_features = x_train.shape[1:]
+    model = create_model(n_features)
     
     server = FederatedServer(model, server_ip)
     if (server.num_workers == 0):
