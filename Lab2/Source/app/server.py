@@ -53,6 +53,7 @@ class FederatedServer:
                 sock, _ = self._server_socket.accept()
                 [client_index, data_size] = self._get_np_array(sock)
                 self._client_infor[client_index] = data_size
+                print('Worker connected: ', client_index)
                 users.append(sock) 
             except socket.timeout:
                 pass
@@ -148,15 +149,14 @@ class FederatedServer:
             try:
                 sock, _ = self._server_socket.accept()
                 [client_index] = self._get_np_array(sock)
-                print('Worker connected: ', client_index)
-                received = self._get_np_array(sock)
-                
                 # Kiểm tra xem worker có ngắt kết nối không
-                if (received == [-1]):
+                if (client_index == -1):
                     self.num_workers -= 1
                     print('Worker disconnected. Total workers: ', self.num_workers)
                     continue
-
+                else:
+                    print('Worker connected: ', client_index)
+                received = self._get_np_array(sock)
                 gathered_weights[client_index] = received
                 users.append(sock)
             except (socket.timeout, ConnectionResetError, BrokenPipeError):
@@ -197,7 +197,10 @@ class FederatedServer:
             self._model.save('../model/federate_learning_model.keras')
         
         print("Model weights updated after aggregation.")
-
+    
+        if self.num_workers == 0:
+            print('No workers connected. Exiting...')
+            return
 
     def close_server(self):
         """Close the server socket."""
@@ -237,7 +240,8 @@ def train_server(server_ip):
     for round in range(100):  
         print(f"\n--- Round {round + 1} ---")
         server.aggregate_updates(x_val, y_val)
-
+        if server.num_workers == 0:
+            break
     server.close_server()
 
 
