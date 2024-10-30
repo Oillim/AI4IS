@@ -1,5 +1,6 @@
 import os 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import socket
 import ssl
@@ -46,15 +47,15 @@ class FederatedServer:
         users = []
         t_end = time.time() + self._wait_time
 
-        while time.time() < t_end:
+        while (time.time() < t_end) and (len(users) < 3):
             try:
                 sock, _ = self._server_socket.accept()
                 client_index = int(sock.recv(1024).decode('utf-8'))
                 print('Worker connected: ', client_index)
-                users.append(sock)
+                users.append(sock) 
             except socket.timeout:
                 pass
-
+        
         num_workers = len(users)
         _ = [us.send("Server accepted".encode('utf-8')) \
         for i, us in enumerate(users)]

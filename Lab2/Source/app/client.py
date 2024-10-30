@@ -12,6 +12,8 @@ from tensorflow.keras.callbacks import Callback, ModelCheckpoint
 
 
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import data_processing as dp
