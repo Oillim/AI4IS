@@ -20,12 +20,13 @@ import data_processing as dp
 import feature_extraction as fe
 
 class FederatedClientCallback(Callback):
-    def __init__(self, model, server_ip, client_index):
+    def __init__(self, model, server_ip, client_index, data_size):
         super().__init__()
         self._model = model
         self._client_index = client_index
         self._server_ip = server_ip.split(':')[0]
         self._server_port = int(server_ip.split(':')[1])
+        self._data_size = data_size
         self._get_task_index()  # Retrieve client and worker index from server
         self._receive_initial_weights()
     
@@ -38,7 +39,7 @@ class FederatedClientCallback(Callback):
 
     def _get_task_index(self):
         client_socket = self._start_socket_worker()
-        client_socket.send(str(self._client_index).encode('utf-8'))
+        self._send_np_array([self._client_index, self._data_size], client_socket)
         client_socket.recv(1024).decode('utf-8')
         client_socket.close()
 
@@ -142,6 +143,7 @@ class FederatedClientCallback(Callback):
         """Sends local model weights to server and receives aggregated weights."""
         print('\nSynchronizing weights...')
         with self._connect_to_server() as worker_socket:
+            self._send_np_array([self._client_index], worker_socket)
             self._send_np_array(self.model.get_weights(), worker_socket)
             broadcasted_weights = self._get_np_array(worker_socket)
             self.model.set_weights(broadcasted_weights)
@@ -171,12 +173,12 @@ def train_client(server_ip, client_index):
     (x_train, y_train), (_, _) = dp.load_data_keras("../../Data")
     (x_train, y_train), (x_val, y_val) = dp.split_data(x_train, y_train, client_index)
 
-    #(x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val)
+    # (x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val, test=False)
     
     (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val, sampling=sampling) 
     n_features = x_train.shape[1:]
     model = create_model(n_features)
-    client_callback = FederatedClientCallback(model, server_ip, client_index)
+    client_callback = FederatedClientCallback(model, server_ip, client_index, x_train.shape[0])
 
     checkpoint = ModelCheckpoint(
         f'../model/client_{client_index}.keras',

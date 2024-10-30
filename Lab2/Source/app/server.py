@@ -46,15 +46,17 @@ class FederatedServer:
         self._server_socket.settimeout(5)
         users = []
         t_end = time.time() + self._wait_time
+        self._client_infor = {}
 
         while (time.time() < t_end) and (len(users) < 3):
             try:
                 sock, _ = self._server_socket.accept()
-                client_index = int(sock.recv(1024).decode('utf-8'))
-                print('Worker connected: ', client_index)
+                [client_index, data_size] = self._get_np_array(sock)
+                self._client_infor[client_index] = data_size
                 users.append(sock) 
             except socket.timeout:
                 pass
+        print(self._client_infor)
         
         num_workers = len(users)
         _ = [us.send("Server accepted".encode('utf-8')) \
@@ -138,39 +140,64 @@ class FederatedServer:
         print("Initial model distributed to clients.")
 
     def aggregate_updates(self, x_val, y_val):
-        gathered_weights = [self._model.get_weights()]
+        gathered_weights = {}
         users = []
 
+        # Kết nối với các worker
         for _ in range(self.num_workers):
             try:
                 sock, _ = self._server_socket.accept()
+                [client_index] = self._get_np_array(sock)
+                print('Worker connected: ', client_index)
                 received = self._get_np_array(sock)
+                
+                # Kiểm tra xem worker có ngắt kết nối không
                 if (received == [-1]):
                     self.num_workers -= 1
                     print('Worker disconnected. Total workers: ', self.num_workers)
                     continue
 
-                gathered_weights.append(received)
+                gathered_weights[client_index] = received
                 users.append(sock)
             except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                print("Connection error or timeout.")
                 break
 
-        averaged_weights = [np.mean([layer[i] for layer in gathered_weights], axis=0)
-                            for i in range(len(gathered_weights[0]))]
+        total_data_size = sum(self._client_infor[client_index] for client_index in gathered_weights.keys())
         
+        if total_data_size == 0:  # Tránh chia cho 0
+            return self._model.get_weights()
+
+        first_weights = []
+        second_weights = []
+
+        for client_index, weights in gathered_weights.items():
+            first_weights.append(weights[0])  # Mảng 2 chiều
+            second_weights.append(weights[1])  # Mảng 1 chiều
+
+        averaged_weights_2d = np.zeros_like(first_weights[0])  
+        averaged_weights_1d = np.zeros_like(second_weights[0])  
+
+        for client_index in gathered_weights.keys():
+            weight = self._client_infor[client_index] / total_data_size  
+            averaged_weights_2d += first_weights.pop(0) * weight
+            averaged_weights_1d += second_weights.pop(0) * weight
+
         for user in users:
-            self._send_np_array(averaged_weights, user)
+            self._send_np_array([averaged_weights_2d, averaged_weights_1d], user)  # Gửi cả hai mảng
             user.close()
-    
-        self._model.set_weights(averaged_weights)
+
+        self._model.set_weights([averaged_weights_2d, averaged_weights_1d])
         loss, accuracy = self._model.evaluate(x_val, y_val, verbose=0)
-         #save model weights if accuracy is better
+        
         print(f"Validation on CIFAR-10 - Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
         global highest_acc
         if accuracy > highest_acc:
             highest_acc = accuracy
             self._model.save('../model/federate_learning_model.keras')
+        
         print("Model weights updated after aggregation.")
+
 
     def close_server(self):
         """Close the server socket."""
@@ -190,8 +217,8 @@ def create_model(n_features):
 
 
 def train_server(server_ip):
-    (x_test, y_test) = dp.load_data_keras("../../Data", test=True)
-    #(x_train, y_train), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test)
+    (x_train, y_train), (x_test, y_test) = dp.load_data_keras("../../Data")
+    # (x_train, y_train), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test, test=False)
 
     (x_test, y_test) = fe.ResnetPreprocess(x_test=x_test, y_test=y_test, sampling=sampling, test=True)
     x_val = x_test[x_test.shape[0] // 2:]

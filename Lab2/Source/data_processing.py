@@ -1,6 +1,5 @@
 import pickle
 import numpy as np
-import torch
 import os
 from keras.src import backend
 from tensorflow import distribute
