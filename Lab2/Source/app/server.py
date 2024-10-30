@@ -12,22 +12,19 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Flatten, Input
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
-from skimage.feature import hog
 from config import SEND_RECEIVE_CONF as SRC
-from skimage.color import rgb2gray
-
-import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import data_processing as dp
 import feature_extraction as fe
 
 LR = 0.005
-
+sampling = 3
+highest_acc = 0.0
 class FederatedServer:
     """Server for Federated Learning without local training."""
 
-    def __init__(self, model, private_ip, wait_time=15):
+    def __init__(self, model, private_ip, wait_time=300):
         self._model = model
         self._private_ip = private_ip.split(':')[0]
         self._private_port = int(private_ip.split(':')[1])
@@ -163,11 +160,15 @@ class FederatedServer:
         for user in users:
             self._send_np_array(averaged_weights, user)
             user.close()
-        
+    
         self._model.set_weights(averaged_weights)
         loss, accuracy = self._model.evaluate(x_val, y_val, verbose=0)
+         #save model weights if accuracy is better
         print(f"Validation on CIFAR-10 - Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
-
+        global highest_acc
+        if accuracy > highest_acc:
+            highest_acc = accuracy
+            self._model.save('../model/federate_learning_model.keras')
         print("Model weights updated after aggregation.")
 
     def close_server(self):
@@ -188,15 +189,16 @@ def create_model(n_features):
 
 
 def train_server(server_ip):
-    (x_train, y_train), (x_test, y_test) = dp.load_data_keras("../../Data")
+    (x_test, y_test) = dp.load_data_keras("../../Data", test=True)
     #(x_train, y_train), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test)
 
-    (x_train, y_train), (x_test, y_test) = fe.ResnetPreprocess(x_train, y_train, x_test, y_test)
+    (x_test, y_test) = fe.ResnetPreprocess(x_test=x_test, y_test=y_test, sampling=sampling, test=True)
     x_val = x_test[x_test.shape[0] // 2:]
     y_val = y_test[y_test.shape[0] // 2:]
-    n_features = x_train.shape[1:]
+
+    n_features = x_test.shape[1:]
     model = create_model(n_features)
-    
+
     server = FederatedServer(model, server_ip)
     if (server.num_workers == 0):
         print('No workers connected. Exiting...')

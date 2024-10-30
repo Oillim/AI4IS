@@ -30,7 +30,18 @@ def load_batch(fpath, label_key="labels"):
     data = data.reshape(data.shape[0], 3, 32, 32)
     return data, labels
 
-def load_data_keras(path):
+def load_data_keras(path, test=False):
+    if test: 
+        path = os.path.join(path, "cifar-10-batches-py")
+        fpath = os.path.join(path, "test_batch")
+        x_test, y_test = load_batch(fpath)
+        y_test = np.reshape(y_test, (len(y_test), 1))
+        if backend.image_data_format() == "channels_last":
+            x_test = x_test.transpose(0, 2, 3, 1)
+        x_test = x_test.astype("float32")
+        y_test = y_test.astype("uint8")
+        return (x_test, y_test)
+    
     num_train_samples = 50000
 
     x_train = np.empty((num_train_samples, 3, 32, 32), dtype="uint8")

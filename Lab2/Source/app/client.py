@@ -5,19 +5,19 @@ from config import SEND_RECEIVE_CONF as SRC
 import socket
 import time
 import hmac
-import numpy as np
 import pickle
 import tensorflow as tf
-from skimage.feature import hog
-from skimage.color import rgb2gray
-import sys
+from tensorflow.keras.callbacks import Callback, ModelCheckpoint
+
 
 
 import os
+import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import data_processing as dp
 import feature_extraction as fe
-class FederatedClientCallback(tf.keras.callbacks.Callback):
+
+class FederatedClientCallback(Callback):
     def __init__(self, model, server_ip, client_index):
         super().__init__()
         self._model = model
@@ -153,7 +153,7 @@ from tensorflow.keras.optimizers import Adam
 BATCH_SIZE = 32
 N_EPOCHS = 10
 LR = 0.005
-
+sampling = 3
 def create_model(n_features):
     """Creates a simple neural network model."""
     model = Sequential([
@@ -171,10 +171,18 @@ def train_client(server_ip, client_index):
 
     #(x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val)
     
-    (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val) 
+    (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val, sampling=sampling) 
     n_features = x_train.shape[1:]
     model = create_model(n_features)
     client_callback = FederatedClientCallback(model, server_ip, client_index)
+
+    checkpoint = ModelCheckpoint(
+        f'../model/client_{client_index}.keras',
+        monitor='val_accuracy',
+        save_best_only=True,
+        mode = 'max',
+        verbose=0
+    )
 
     model.fit(
         x_train,
@@ -182,7 +190,7 @@ def train_client(server_ip, client_index):
         batch_size=BATCH_SIZE,
         epochs=N_EPOCHS,
         validation_data=(x_val, y_val),
-        callbacks=[client_callback]
+        callbacks=[client_callback, checkpoint]
     )
 
 if __name__ == '__main__':
