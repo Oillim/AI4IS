@@ -39,7 +39,7 @@ def create_adversarial_example(model, image, label, epsilon=10, alpha=0.01, num_
 
     return image
 
-epsilon_values = [0.0005, 0.002, 0.005, 0.01, 0.02]  # Các giá trị epsilon để thử nghiệm  # Các giá trị alpha để thử nghiệm
+epsilon_values = [0.0005, 0.002]#, 0.005, 0.01, 0.02] # Các giá trị epsilon để thử nghiệm  # Các giá trị alpha để thử nghiệm
 adversarial_accuracies = []
 iterations = 1000
 total_images = len(features_test)
@@ -71,7 +71,7 @@ plt.savefig('LGSM_epsilon.png')
 plt.show()
 
 
-alpha_values = [0.0005, 0.002, 0.005, 0.01, 0.02]
+alpha_values = [0.0005, 0.002]#, 0.005, 0.01, 0.02]
 adversarial_accuracies = []
 for alpha in alpha_values:
     correct_adversarial_predictions = 0
