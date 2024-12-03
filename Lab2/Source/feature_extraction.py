@@ -63,5 +63,42 @@ def ResnetPreprocess(x_train=None, y_train=None, x_test=None, y_test=None, sampl
 
     return (features_train, y_train), (features_test, y_test)
 
+def poison_dataset(x_train, y_train, num_labels_to_poison=3, poison_ratio=0.1):
+    """
+    Poison the training dataset by randomly changing a fraction of samples for multiple labels.
+    
+    Args:
+        x_train (numpy.ndarray): Training images.
+        y_train (numpy.ndarray): Training labels.
+        num_labels_to_poison (int): Number of unique labels to poison.
+        poison_ratio (float): Fraction of the dataset to poison.
+        
+    Returns:
+        Tuple[numpy.ndarray, numpy.ndarray]: Poisoned training images and labels.
+    """
+    unique_labels = np.unique(y_train)
+    labels_to_poison = np.random.choice(unique_labels, num_labels_to_poison, replace=False)
+    
+    y_train_poisoned = np.copy(y_train)
+    x_train_poisoned = np.copy(x_train)
+    
+    for target_label in labels_to_poison:
+        # Choose a random desired label for the target label
+        desired_label = np.random.choice(unique_labels[unique_labels != target_label])
+        
+        # Find indices of the target label
+        target_indices = np.where(y_train == target_label)[0]
+        num_available = len(target_indices)
+        
+        # Determine how many samples to poison
+        num_poison = int(len(y_train) * poison_ratio / num_labels_to_poison)
+        num_poison = min(num_poison, num_available)
+        
+        if num_poison > 0:
+            poison_indices = np.random.choice(target_indices, num_poison, replace=False)
+            y_train_poisoned[poison_indices] = desired_label
+    print(f"Poisoned dataset with labels: {labels_to_poison} with poison ratio: {poison_ratio}")
+    return x_train_poisoned, y_train_poisoned
+
 if "__name__" == "__main__":
     print("Feature extraction...")

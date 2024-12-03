@@ -1,4 +1,5 @@
 import os 
+import matplotlib.pyplot as plt
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -201,6 +202,8 @@ class FederatedServer:
         if self.num_workers == 0:
             print('No workers connected. Exiting...')
             return
+        
+        return loss, accuracy
 
     def close_server(self):
         """Close the server socket."""
@@ -235,15 +238,39 @@ def train_server(server_ip):
         print('No workers connected. Exiting...')
         return
     
+    loss_history = []
+    accuracy_history = []
+
     server.distribute_initial_model()
 
     for round in range(100):  
         print(f"\n--- Round {round + 1} ---")
-        server.aggregate_updates(x_val, y_val)
+        loss, acc = server.aggregate_updates(x_val, y_val)
+        loss_history.append(loss)
+        accuracy_history.append(acc)
         if server.num_workers == 0:
             break
+    plt.figure()
+    plt.plot(range(1, len(loss_history[:-1]) + 1), loss_history[:-1], label='Validation Loss')
+    plt.title('Server Validation Loss Over Rounds')
+    plt.xlabel('Round')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig('server_validation_loss.png')
+    plt.close()
+
+    # Plot and save accuracy
+    plt.figure()
+    plt.plot(range(1, len(accuracy_history[:-1]) + 1), accuracy_history[:-1], label='Validation Accuracy')
+    plt.title('Server Validation Accuracy Over Rounds')
+    plt.xlabel('Round')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.savefig('server_validation_accuracy.png')
+    plt.close()
     server.close_server()
 
+    
 
 if __name__ == '__main__':
     server_ip = '127.0.0.1:5000'

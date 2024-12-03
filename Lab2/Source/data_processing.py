@@ -82,19 +82,28 @@ def split_data(x, y, client_index):
         1: {"x": [], "y": []},  # Data for client 1
         2: {"x": [], "y": []}   # Data for client 2
     }
-
+    validation_data = {"x": [], "y": []}
+    
     if client_index not in client_data:
         raise ValueError("Invalid client index")
     
     for class_id in np.unique(y):
         class_indices = np.where(y == class_id)[0]
+        np.random.shuffle(class_indices)
+
+        # Reserve 10% of data for the general validation set
+        val_split_size = int(0.1 * len(class_indices))
+        validation_indices = class_indices[:val_split_size]
+        training_indices = class_indices[val_split_size:]
         
+        # Add to the validation set
+        validation_data["x"].append(x[validation_indices])
+        validation_data["y"].append(y[validation_indices])
+
         clients_with_class = [client for client, classes in client_classes.items() if class_id in classes]
         num_clients = len(clients_with_class)
 
-        np.random.shuffle(class_indices)
-        split_indices = np.array_split(class_indices, num_clients)
-
+        split_indices = np.array_split(training_indices, num_clients)
         for client, indices in zip(clients_with_class, split_indices):
             client_data[client]["x"].append(x[indices])
             client_data[client]["y"].append(y[indices])
@@ -107,10 +116,12 @@ def split_data(x, y, client_index):
     x_client = x_client[indices]
     y_client = y_client[indices]
 
-    train_size = int(0.9 * len(x_client))
-    x_train, x_val = x_client[:train_size], x_client[train_size:]
-    y_train, y_val = y_client[:train_size], y_client[train_size:]
-
+    #train_size = int(0.9 * len(x_client))
+    x_train = x_client
+    y_train = y_client
+    
+    x_val = np.concatenate(validation_data["x"], axis=0)
+    y_val = np.concatenate(validation_data["y"], axis=0)
     print(f"Client {client_index} - x_train shape: {x_train.shape}, y_train shape: {y_train.shape}")
     print(f"Client {client_index} - x_val shape: {x_val.shape}, y_val shape: {y_val.shape}")
 
