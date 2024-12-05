@@ -302,33 +302,42 @@ class FederatedServer:
                 print('No workers connected. Exiting...')
                 return 0, 0
 
-        # Extract client weights 
         client_weights = list(gather_weights.values())
 
-        # Compute cosine similarity between each client's weights
         similarities = []
+        epsilon = 1e-8  
         for i in range(len(client_weights)):
             client_sim = []
             for j in range(len(client_weights)):
                 if i != j:
-                    sim_2d = cosine_similarity(client_weights[i][0].reshape(1, -1), 
-                                            client_weights[j][0].reshape(1, -1))[0][0]
-                    sim_1d = cosine_similarity(client_weights[i][1].reshape(1, -1), 
-                                            client_weights[j][1].reshape(1, -1))[0][0]
+                    norm_i_2d = np.linalg.norm(client_weights[i][0])
+                    norm_j_2d = np.linalg.norm(client_weights[j][0])
+                    norm_i_1d = np.linalg.norm(client_weights[i][1])
+                    norm_j_1d = np.linalg.norm(client_weights[j][1])
+
+                    # Handle small norms to avoid instability
+                    if norm_i_2d < epsilon or norm_j_2d < epsilon or norm_i_1d < epsilon or norm_j_1d < epsilon:
+                        print(f"Warning: Very small norm detected, skipping similarity calculation for clients {i} and {j}.")
+                        sim_2d = 0
+                        sim_1d = 0
+                    else:
+                        sim_2d = (client_weights[i][0].flatten().dot(client_weights[j][0].flatten()) + epsilon) / (
+                            norm_i_2d * norm_j_2d + epsilon)
+                        sim_1d = (client_weights[i][1].flatten().dot(client_weights[j][1].flatten()) + epsilon) / (
+                            norm_i_1d * norm_j_1d + epsilon)
                     client_sim.append((sim_2d + sim_1d) / 2)
                 else:
-                    client_sim.append(1.0)
+                    client_sim.append(1.0)  # Similarity with itself is 1.0
             similarities.append(client_sim)
 
-        # Compute weights based on similarities
         similarities = np.array(similarities)
         weights = similarities.sum(axis=1)
+        weights /= weights.sum()  # Normalize weights
 
-        # Weighted trimmed mean for weights
+
         first_weights = np.array([client_weights[i][0] * weights[i] for i in range(len(client_weights))])
         second_weights = np.array([client_weights[i][1] * weights[i] for i in range(len(client_weights))])
 
-        # Apply trimmed mean
         trimmed_mean_weights_2d = trim_mean(first_weights, proportion_to_trim, axis=0)
         trimmed_mean_weights_1d = trim_mean(second_weights, proportion_to_trim, axis=0)
 
