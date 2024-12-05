@@ -214,8 +214,8 @@ from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import regularizers
 
-BATCH_SIZE = 32
-N_EPOCHS = 6 
+BATCH_SIZE = 64
+N_EPOCHS = 2 
 LR = 0.005
 sampling = 3
 def create_model(n_features, reg_method=None):

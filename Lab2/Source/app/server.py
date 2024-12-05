@@ -39,7 +39,7 @@ class FederatedServer:
         self._private_port = int(private_ip.split(':')[1])
         self._wait_time = wait_time
         self.num_workers = self._get_task_index()
-        self.client_weights = {}
+        gather_weights = {}
 
     
     def _start_socket_server(self):
@@ -150,6 +150,7 @@ class FederatedServer:
         print("Initial model distributed to clients.")
 
     def aggregate_updates(self, x_val, y_val):
+        gather_weights = {}
         users = []
 
         # Kết nối với các worker
@@ -165,13 +166,13 @@ class FederatedServer:
                 else:
                     print('Worker connected: ', client_index)
                 received = self._get_np_array(sock)
-                self.client_weights[client_index] = received
+                gather_weights[client_index] = received
                 users.append(sock)
             except (socket.timeout, ConnectionResetError, BrokenPipeError):
                 print("Connection error or timeout.")
                 break
 
-        total_data_size = sum(self._client_infor[client_index] for client_index in self.client_weights.keys())
+        total_data_size = sum(self._client_infor[client_index] for client_index in gather_weights.keys())
         
         if total_data_size == 0:  # Tránh chia cho 0
             return self._model.get_weights()
@@ -179,14 +180,14 @@ class FederatedServer:
         first_weights = []
         second_weights = []
 
-        for client_index, weights in self.client_weights.items():
+        for client_index, weights in gather_weights.items():
             first_weights.append(weights[0])  # Mảng 2 chiều
             second_weights.append(weights[1])  # Mảng 1 chiều
 
         averaged_weights_2d = np.zeros_like(first_weights[0])  
         averaged_weights_1d = np.zeros_like(second_weights[0])  
 
-        for client_index in self.client_weights.keys():
+        for client_index in gather_weights.keys():
             averaged_weights_2d += first_weights.pop(0)
             averaged_weights_1d += second_weights.pop(0)
 
@@ -211,9 +212,9 @@ class FederatedServer:
         
         return loss, accuracy
 
-
     def aggregate_updates_with_trimmed_mean(self, x_val, y_val, proportion_to_trim=TRIM):
         users = []
+        gather_weights = {}
 
         for _ in range(self.num_workers):
             try:
@@ -226,14 +227,17 @@ class FederatedServer:
                 else:
                     print('Worker connected: ', client_index)
                 received = self._get_np_array(sock)
-                self.client_weights[client_index] = received
+                gather_weights[client_index] = received
                 users.append(sock)
             except (socket.timeout, ConnectionResetError, BrokenPipeError):
                 print("Connection error or timeout.")
                 return None, None
 
-        first_weights = np.array([weights[0] for weights in self.client_weights.values()])
-        second_weights = np.array([weights[1] for weights in self.client_weights.values()])
+        if len(gather_weights) == 0:
+            return 0, 0
+
+        first_weights = np.array([weights[0] for weights in gather_weights.values()])
+        second_weights = np.array([weights[1] for weights in gather_weights.values()])
 
         # Calculate trimmed mean for both weight arrays
         trimmed_mean_weights_2d = trim_mean(first_weights, proportion_to_trim, axis=0)
@@ -254,15 +258,13 @@ class FederatedServer:
         
         print("Model weights updated after aggregation with trimmed mean.")
 
-        if self.num_workers == 0:
-            print('No workers connected. Exiting...')
-            return 0, 0
-
         return loss, accuracy
 
 
-    def aggregate_updates_with_cosine_trimmed_mean(self, x_val, y_val, proportion_to_trim=0.1):
+    def aggregate_updates_with_cosine_trimmed_mean(self, x_val, y_val, proportion_to_trim=TRIM):
+        global highest_acc
         users = []
+        gather_weights = {}
 
         for _ in range(self.num_workers):
             try:
@@ -275,14 +277,33 @@ class FederatedServer:
                 else:
                     print('Worker connected: ', client_index)
                     received = self._get_np_array(sock)
-                    self.client_weights[client_index] = received
+                    gather_weights[client_index] = received
                     users.append(sock)
             except (socket.timeout, ConnectionResetError, BrokenPipeError):
                 print("Connection error or timeout.")
                 return None, None
+            
+        if len(gather_weights) <= 1:
+            if len(gather_weights) == 1:
+                client_weights = list(gather_weights.values())[0]
+                for user in users:
+                    self._send_np_array(client_weights, user)
+                    user.close()
+                self._model.set_weights(client_weights)
+                loss, accuracy = self._model.evaluate(x_val, y_val, verbose=0)
+                print(f"Single client - Validation on CIFAR-10 - Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
+                
+                if accuracy > highest_acc:
+                    highest_acc = accuracy
+                    self._model.save('../model/federate_learning_model.keras')
+                
+                return loss, accuracy
+            else:
+                print('No workers connected. Exiting...')
+                return 0, 0
 
         # Extract client weights 
-        client_weights = list(self.client_weights.values())
+        client_weights = list(gather_weights.values())
 
         # Compute cosine similarity between each client's weights
         similarities = []
@@ -319,7 +340,6 @@ class FederatedServer:
         loss, accuracy = self._model.evaluate(x_val, y_val, verbose=0)
 
         print(f"Validation on CIFAR-10 - Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
-        global highest_acc
         if accuracy > highest_acc:
             highest_acc = accuracy
             self._model.save('../model/federate_learning_model.keras')
@@ -391,7 +411,6 @@ def train_server(server_ip, args):
         elif loss is None and acc is None:
             continue
 
-        print(loss, acc)
 
         if type(loss) == float and type(acc) == float:
             loss_history.append(loss)
