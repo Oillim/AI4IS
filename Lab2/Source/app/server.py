@@ -361,9 +361,9 @@ def create_model(n_features, reg_method):
 
 def train_server(server_ip, args):
     (x_train, y_train), (x_test, y_test) = dp.load_data_keras("../../Data")
-    (_, _), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test, test=False)
+    #(_, _), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test, test=False)
 
-    # (x_test, y_test) = fe.ResnetPreprocess(x_test=x_test, y_test=y_test, sampling=sampling, test=True)
+    (x_test, y_test) = fe.ResnetPreprocess(x_test=x_test, y_test=y_test, sampling=sampling, test=True)
     x_val = x_test[x_test.shape[0] // 2:]
     y_val = y_test[y_test.shape[0] // 2:]
 

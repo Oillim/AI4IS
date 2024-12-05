@@ -240,8 +240,8 @@ def train_client(server_ip, client_index, attack=None, reg_method=None):
     (x_train, y_train), (_, _) = dp.load_data_keras("../../Data")
     (x_train, y_train), (x_val, y_val) = dp.split_data(x_train, y_train, client_index)
 
-    (x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val, test=False)
-    # (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val, sampling=sampling)
+    #(x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val, test=False)
+    (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val, sampling=sampling)
     if attack == 'data':
         (x_train, y_train) = fe.poison_dataset(x_train, y_train, 3, poison_ratio=0.5)
     

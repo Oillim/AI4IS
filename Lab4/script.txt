@@ -1,0 +1,68 @@
+Đánh giá model:
+Vì hiện tại chỉ có 3 client, trong đó 2 client mang tính quyết định (client 2 và 3), vì vậy khó có thể dùng các phương pháp loại client.
+Hướng đi là cố 
+
+Tình huống tấn công:
+model 1: bình thường
+model 2: data poisoning rate 50%
+model 3: model poisoning rate 50%
+
+## Lệnh
+python server.py --agg_method mean  
+python client.py --client_index 0
+python client.py --client_index 1 --attack model
+python client.py --client_index 1 --attack data
+
+sau tấn công: 
++ 0.2468
+
+data poisoning
+-- method: mean trimmed
+--- phù hợp trong tình huống này, day là phương pháp giúp ta không loại bỏ hoàn toàn client mà chỉ "cắt tỉa" đi các node có giá trị quá lớn hoặc quá nhỏ, nói chung là bất thường
+---- sau áp dụng: 0.2826
+## Lệnh
+python server.py --agg_method trim
+python client.py --client_index 0
+python client.py --client_index 1 --attack model
+python client.py --client_index 2 --attack data
+
+model poisoning
+-- method: l2 regulazation
+--- phù hơpj trong tình huống này, penalty từ l2 giúp tác động từ client nhiễm độc được giảm xuống.
+---- sau áp dụng (kết hợp meantrimmed): 0.30
+## Lệnh
+python server.py --agg_method trim --reg_method l2
+python client.py --client_index 0 --reg_method l2
+python client.py --client_index 1 --attack model --reg_method l2
+python client.py --client_index 2 --attack data --reg_method l2
+
+
+phương pháp bảo vệ tổng thể:
+cosine similarity: client nào có sự tương đồng nhất với các client còn lại thì tăng weight để ưu tiên
+---- sau áp dụng (kết hợp l2 và mean trimmed): 0.32
+## Lệnh
+python server.py --agg_method trim_cos --reg_method l2
+python client.py --client_index 0 --reg_method l2
+python client.py --client_index 1 --attack model --reg_method l2
+python client.py --client_index 2 --attack data --reg_method l2
+
+###################################################################################################
+Áp dụng cho Resnet:
+
+## Lệnh default
+python server.py --agg_method mean  
+python client.py --client_index 0
+python client.py --client_index 1
+python client.py --client_index 2
+
+không tấn công: 
++ 0.6514
+
+## Lệnh trim
+python server.py --agg_method trim 
+python client.py --client_index 0
+python client.py --client_index 1
+python client.py --client_index 2
+
+không tấn công: 
++ 0.5616
