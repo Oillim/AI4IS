@@ -1,3 +1,10 @@
+TRIM = 0.1
+L2_REG = 0.0001
+
+from scipy.stats import trim_mean
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.stats import trim_mean
+
 import os 
 import matplotlib.pyplot as plt
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -32,6 +39,7 @@ class FederatedServer:
         self._private_port = int(private_ip.split(':')[1])
         self._wait_time = wait_time
         self.num_workers = self._get_task_index()
+        self.client_weights = {}
 
     
     def _start_socket_server(self):
@@ -142,7 +150,6 @@ class FederatedServer:
         print("Initial model distributed to clients.")
 
     def aggregate_updates(self, x_val, y_val):
-        gathered_weights = {}
         users = []
 
         # Kết nối với các worker
@@ -158,13 +165,13 @@ class FederatedServer:
                 else:
                     print('Worker connected: ', client_index)
                 received = self._get_np_array(sock)
-                gathered_weights[client_index] = received
+                self.client_weights[client_index] = received
                 users.append(sock)
             except (socket.timeout, ConnectionResetError, BrokenPipeError):
                 print("Connection error or timeout.")
                 break
 
-        total_data_size = sum(self._client_infor[client_index] for client_index in gathered_weights.keys())
+        total_data_size = sum(self._client_infor[client_index] for client_index in self.client_weights.keys())
         
         if total_data_size == 0:  # Tránh chia cho 0
             return self._model.get_weights()
@@ -172,20 +179,19 @@ class FederatedServer:
         first_weights = []
         second_weights = []
 
-        for client_index, weights in gathered_weights.items():
+        for client_index, weights in self.client_weights.items():
             first_weights.append(weights[0])  # Mảng 2 chiều
             second_weights.append(weights[1])  # Mảng 1 chiều
 
         averaged_weights_2d = np.zeros_like(first_weights[0])  
         averaged_weights_1d = np.zeros_like(second_weights[0])  
 
-        for client_index in gathered_weights.keys():
-            weight = self._client_infor[client_index] / total_data_size  
-            averaged_weights_2d += first_weights.pop(0) * weight
-            averaged_weights_1d += second_weights.pop(0) * weight
+        for client_index in self.client_weights.keys():
+            averaged_weights_2d += first_weights.pop(0)
+            averaged_weights_1d += second_weights.pop(0)
 
         for user in users:
-            self._send_np_array([averaged_weights_2d, averaged_weights_1d], user)  # Gửi cả hai mảng
+            self._send_np_array([averaged_weights_2d / 3, averaged_weights_1d / 3], user)  # Gửi cả hai mảng
             user.close()
 
         self._model.set_weights([averaged_weights_2d, averaged_weights_1d])
@@ -201,37 +207,168 @@ class FederatedServer:
     
         if self.num_workers == 0:
             print('No workers connected. Exiting...')
-            return
+            return 0, 0
         
         return loss, accuracy
+
+
+    def aggregate_updates_with_trimmed_mean(self, x_val, y_val, proportion_to_trim=TRIM):
+        users = []
+
+        for _ in range(self.num_workers):
+            try:
+                sock, _ = self._server_socket.accept()
+                [client_index] = self._get_np_array(sock)
+                if (client_index == -1):
+                    self.num_workers -= 1
+                    print('Worker disconnected. Total workers: ', self.num_workers)
+                    continue
+                else:
+                    print('Worker connected: ', client_index)
+                received = self._get_np_array(sock)
+                self.client_weights[client_index] = received
+                users.append(sock)
+            except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                print("Connection error or timeout.")
+                return None, None
+
+        first_weights = np.array([weights[0] for weights in self.client_weights.values()])
+        second_weights = np.array([weights[1] for weights in self.client_weights.values()])
+
+        # Calculate trimmed mean for both weight arrays
+        trimmed_mean_weights_2d = trim_mean(first_weights, proportion_to_trim, axis=0)
+        trimmed_mean_weights_1d = trim_mean(second_weights, proportion_to_trim, axis=0)
+
+        for user in users:
+            self._send_np_array([trimmed_mean_weights_2d, trimmed_mean_weights_1d], user)
+            user.close()
+
+        self._model.set_weights([trimmed_mean_weights_2d, trimmed_mean_weights_1d])
+        loss, accuracy = self._model.evaluate(x_val, y_val, verbose=0)
+
+        print(f"Validation on CIFAR-10 - Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
+        global highest_acc
+        if accuracy > highest_acc:
+            highest_acc = accuracy
+            self._model.save('../model/federate_learning_model.keras')
+        
+        print("Model weights updated after aggregation with trimmed mean.")
+
+        if self.num_workers == 0:
+            print('No workers connected. Exiting...')
+            return 0, 0
+
+        return loss, accuracy
+
+
+    def aggregate_updates_with_cosine_trimmed_mean(self, x_val, y_val, proportion_to_trim=0.1):
+        users = []
+
+        for _ in range(self.num_workers):
+            try:
+                sock, _ = self._server_socket.accept()
+                [client_index] = self._get_np_array(sock)
+                if client_index == -1:
+                    self.num_workers -= 1
+                    print('Worker disconnected. Total workers: ', self.num_workers)
+                    continue
+                else:
+                    print('Worker connected: ', client_index)
+                    received = self._get_np_array(sock)
+                    self.client_weights[client_index] = received
+                    users.append(sock)
+            except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                print("Connection error or timeout.")
+                return None, None
+
+        # Extract client weights 
+        client_weights = list(self.client_weights.values())
+
+        # Compute cosine similarity between each client's weights
+        similarities = []
+        for i in range(len(client_weights)):
+            client_sim = []
+            for j in range(len(client_weights)):
+                if i != j:
+                    sim_2d = cosine_similarity(client_weights[i][0].reshape(1, -1), 
+                                            client_weights[j][0].reshape(1, -1))[0][0]
+                    sim_1d = cosine_similarity(client_weights[i][1].reshape(1, -1), 
+                                            client_weights[j][1].reshape(1, -1))[0][0]
+                    client_sim.append((sim_2d + sim_1d) / 2)
+                else:
+                    client_sim.append(1.0)
+            similarities.append(client_sim)
+
+        # Compute weights based on similarities
+        similarities = np.array(similarities)
+        weights = similarities.sum(axis=1)
+
+        # Weighted trimmed mean for weights
+        first_weights = np.array([client_weights[i][0] * weights[i] for i in range(len(client_weights))])
+        second_weights = np.array([client_weights[i][1] * weights[i] for i in range(len(client_weights))])
+
+        # Apply trimmed mean
+        trimmed_mean_weights_2d = trim_mean(first_weights, proportion_to_trim, axis=0)
+        trimmed_mean_weights_1d = trim_mean(second_weights, proportion_to_trim, axis=0)
+
+        for user in users:
+            self._send_np_array([trimmed_mean_weights_2d, trimmed_mean_weights_1d], user)
+            user.close()
+
+        self._model.set_weights([trimmed_mean_weights_2d, trimmed_mean_weights_1d])
+        loss, accuracy = self._model.evaluate(x_val, y_val, verbose=0)
+
+        print(f"Validation on CIFAR-10 - Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
+        global highest_acc
+        if accuracy > highest_acc:
+            highest_acc = accuracy
+            self._model.save('../model/federate_learning_model.keras')
+        
+        print("Model weights updated after cosine similarity and trimmed mean aggregation.")
+
+        if self.num_workers == 0:
+            print('No workers connected. Exiting...')
+            return 0, 0
+
+        return loss, accuracy
+
 
     def close_server(self):
         """Close the server socket."""
         self._server_socket.close()
 
 
+from tensorflow.keras import regularizers
 
-def create_model(n_features):
-    model = Sequential([
-        Input(shape=(n_features)),
-        Flatten(),
-        Dense(10, activation='softmax')
-    ])
+
+def create_model(n_features, reg_method):
+    if reg_method:
+        model = Sequential([
+            Input(shape=(n_features)),
+            Flatten(),
+            Dense(10, activation='softmax', kernel_regularizer=regularizers.l2(L2_REG))
+        ])
+    else:
+        model = Sequential([
+            Input(shape=(n_features)),
+            Flatten(),
+            Dense(10, activation='softmax')
+        ])
     model.compile(optimizer=Adam(learning_rate=LR), loss=SparseCategoricalCrossentropy(from_logits=False), metrics=['accuracy'])
     return model
 
 
 
-def train_server(server_ip):
+def train_server(server_ip, args):
     (x_train, y_train), (x_test, y_test) = dp.load_data_keras("../../Data")
-    # (x_train, y_train), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test, test=False)
+    (_, _), (x_test, y_test) = fe.HogPreprocess(x_train, y_train, x_test, y_test, test=False)
 
-    (x_test, y_test) = fe.ResnetPreprocess(x_test=x_test, y_test=y_test, sampling=sampling, test=True)
+    # (x_test, y_test) = fe.ResnetPreprocess(x_test=x_test, y_test=y_test, sampling=sampling, test=True)
     x_val = x_test[x_test.shape[0] // 2:]
     y_val = y_test[y_test.shape[0] // 2:]
 
     n_features = x_test.shape[1:]
-    model = create_model(n_features)
+    model = create_model(n_features, args.reg_method)
 
     server = FederatedServer(model, server_ip)
     if (server.num_workers == 0):
@@ -245,9 +382,20 @@ def train_server(server_ip):
 
     for round in range(100):  
         print(f"\n--- Round {round + 1} ---")
-        loss, acc = server.aggregate_updates(x_val, y_val)
-        loss_history.append(loss)
-        accuracy_history.append(acc)
+        if (args.agg_method == 'mean'):
+            loss, acc = server.aggregate_updates(x_val, y_val)
+        elif (args.agg_method == 'trim'):
+            loss, acc = server.aggregate_updates_with_trimmed_mean(x_val, y_val)
+        elif (args.agg_method == 'trim_cos'):
+            loss, acc = server.aggregate_updates_with_cosine_trimmed_mean(x_val, y_val)
+        elif loss is None and acc is None:
+            continue
+
+        print(loss, acc)
+
+        if type(loss) == float and type(acc) == float:
+            loss_history.append(loss)
+            accuracy_history.append(acc)
         if server.num_workers == 0:
             break
     plt.figure()
@@ -272,6 +420,11 @@ def train_server(server_ip):
 
     
 
+import argparse
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Federated learning server.")
+    parser.add_argument("--agg_method", type=str, required=False, default='mean', help="Aggregation method ('mean' or 'median')")
+    parser.add_argument("--reg_method", type=str, required=False, default=None, help="Regularization method")
+    args = parser.parse_args()
     server_ip = '127.0.0.1:5000'
-    train_server(server_ip)
+    train_server(server_ip, args)

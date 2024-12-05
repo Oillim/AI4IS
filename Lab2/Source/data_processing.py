@@ -77,8 +77,8 @@ def split_data(x, y, client_index):
         2: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # Classes for client 2
     }
 
-    client_data = {
-        0: {"x": [], "y": []},  # Data for client 0
+    client_data = { 
+        0: {"x": [], "y": []}, # Data for client 0
         1: {"x": [], "y": []},  # Data for client 1
         2: {"x": [], "y": []}   # Data for client 2
     }
@@ -89,10 +89,11 @@ def split_data(x, y, client_index):
     
     for class_id in np.unique(y):
         class_indices = np.where(y == class_id)[0]
-        np.random.shuffle(class_indices)
+        # np.random.shuffle(class_indices)
 
         # Reserve 10% of data for the general validation set
         val_split_size = int(0.1 * len(class_indices))
+
         validation_indices = class_indices[:val_split_size]
         training_indices = class_indices[val_split_size:]
         

@@ -1,4 +1,4 @@
-
+L2_REG = 0.0001
 
 import argparse
 from config import SEND_RECEIVE_CONF as SRC
@@ -20,7 +20,7 @@ import data_processing as dp
 import feature_extraction as fe
 
 class FederatedClientCallback(Callback):
-    def __init__(self, model, server_ip, client_index, data_size, fake=False):
+    def __init__(self, model, server_ip, client_index, x_val, y_val, data_size, fake=False):
         super().__init__()
         self._model = model
         self._client_index = client_index
@@ -30,6 +30,8 @@ class FederatedClientCallback(Callback):
         self.fake = fake
         self._get_task_index()  # Retrieve client and worker index from server
         self._receive_initial_weights()
+        self.x_val = x_val
+        self.y_val = y_val
     
     def _receive_initial_weights(self):
         """Receives initial model weights from server."""
@@ -47,8 +49,8 @@ class FederatedClientCallback(Callback):
     def _start_socket_worker(self):
         """Attempts connection to server with retries."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        max_retries = 5
-        retry_delay = 5
+        max_retries = 20
+        retry_delay = 2
         
         for attempt in range(max_retries):
             try:
@@ -154,9 +156,41 @@ class FederatedClientCallback(Callback):
             # Send client index
             self._send_np_array([self._client_index], worker_socket)
             
-            # Optionally poison the weights
             if fake:
-                
+                poisoned_weights = []
+                for weight in self.model.get_weights():
+                    if np.issubdtype(weight.dtype, np.floating):  # Only perturb floating-point weights
+                        noise = np.random.normal(0, attack_strength, weight.shape)  # Add Gaussian noise
+                        poisoned_weights.append(weight + noise)
+                    else:
+                        poisoned_weights.append(weight)  # Non-floating weights are unchanged
+                self._send_np_array(poisoned_weights, worker_socket)
+            else:
+                # Send unmodified weights
+                self._send_np_array(self.model.get_weights(), worker_socket)
+            
+            # Receive aggregated weights from the server
+            broadcasted_weights = self._get_np_array(worker_socket)
+            self.model.set_weights(broadcasted_weights)
+            worker_socket.close()
+
+    def _synchronize_weights_base_acc(self, fake=False, attack_strength=0.5):
+        """
+        Sends local model weights to server and receives aggregated weights.
+        Optionally applies a model poisoning attack.
+        
+        Args:
+            fake (bool): Whether to apply model poisoning (malicious behavior).
+            attack_strength (float): Strength of the model poisoning attack.
+        """
+        print('\nSynchronizing weights...')
+        with self._connect_to_server() as worker_socket:
+            # Send client index
+            _, acc = self.model.evaluate(self.x_val, self.y_val, verbose=0)
+            self._send_np_array([self._client_index], worker_socket)
+            self._send_np_array([acc], worker_socket)
+            
+            if fake:
                 poisoned_weights = []
                 for weight in self.model.get_weights():
                     if np.issubdtype(weight.dtype, np.floating):  # Only perturb floating-point weights
@@ -178,39 +212,47 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Flatten, Input
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import regularizers
 
 BATCH_SIZE = 32
-N_EPOCHS = 10
+N_EPOCHS = 6 
 LR = 0.005
 sampling = 3
-def create_model(n_features):
+def create_model(n_features, reg_method=None):
     """Creates a simple neural network model."""
-    model = Sequential([
-        Input(shape=(n_features)),
-        Flatten(),
-        Dense(10, activation='softmax')
-    ])
+    if reg_method == 'l2':
+        model = Sequential([
+            Input(shape=(n_features)),
+            Flatten(),
+            Dense(10, activation='softmax', kernel_regularizer=regularizers.l2(L2_REG))
+        ])
+    else:
+        model = Sequential([
+            Input(shape=(n_features)),
+            Flatten(),
+            Dense(10, activation='softmax')
+        ])
     model.compile(optimizer=Adam(learning_rate=LR), loss=SparseCategoricalCrossentropy(from_logits=False), metrics=['accuracy'])
     return model
 
-def train_client(server_ip, client_index, attack=None):
+def train_client(server_ip, client_index, attack=None, reg_method=None):
     """Loads data, preprocesses, creates model, and starts training with federated callback."""
     (x_train, y_train), (_, _) = dp.load_data_keras("../../Data")
     (x_train, y_train), (x_val, y_val) = dp.split_data(x_train, y_train, client_index)
 
-    # (x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val, test=False)
-    (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val, sampling=sampling)
+    (x_train, y_train), (x_val, y_val) = fe.HogPreprocess(x_train, y_train, x_val, y_val, test=False)
+    # (x_train, y_train), (x_val, y_val) = fe.ResnetPreprocess(x_train, y_train, x_val, y_val, sampling=sampling)
     if attack == 'data':
         (x_train, y_train) = fe.poison_dataset(x_train, y_train, 3, poison_ratio=0.5)
     
     n_features = x_train.shape[1:]
-    model = create_model(n_features)
+    model = create_model(n_features, reg_method)
 
     if attack == 'model':
-        client_callback = FederatedClientCallback(model, server_ip, client_index, x_train.shape[0], fake=True)
+        client_callback = FederatedClientCallback(model, server_ip, client_index, x_val, y_val, x_train.shape[0], fake=True)
         print(f"Applying model poisoning attack to client {client_index}")
     else:
-        client_callback = FederatedClientCallback(model, server_ip, client_index, x_train.shape[0])
+        client_callback = FederatedClientCallback(model, server_ip, client_index, x_val, y_val, x_train.shape[0])
     
     checkpoint = ModelCheckpoint(
         f'../model/client_{client_index}.keras',
@@ -243,7 +285,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Federated learning client.")
     parser.add_argument("--client_index", type=int, required=True, help="Server IP and port in the format 'IP:PORT'")
     parser.add_argument("--attack", type=str, required=False, help="Whether to attack a model at client ('data' for data poisoning, 'model' for model poisoning)")
+    parser.add_argument("--reg_method", type=str, required=False, help="Regularization method")
     args = parser.parse_args()
     server_ip = '127.0.0.1:5000'
 
-    train_client(server_ip, args.client_index, args.attack)
+    train_client(server_ip, args.client_index, args.attack, args.reg_method)
