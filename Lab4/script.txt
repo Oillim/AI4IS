@@ -1,0 +1,83 @@
+Đánh giá model:
+Vì hiện tại chỉ có 3 client, trong đó 2 client mang tính quyết định (client 2 và 3), vì vậy khó có thể dùng các phương pháp loại client.
+Hướng đi là cố 
+
+Tình huống tấn công:
+model 1: bình thường
+model 2: data poisoning rate 50%
+model 3: model poisoning rate 50%
+
+## Lệnh
+python server.py --agg_method mean  
+python client.py --client_index 0
+python client.py --client_index 1 --attack model
+python client.py --client_index 1 --attack data
+
+sau tấn công: 
++ 0.2468
+
+data poisoning
+-- method: mean trimmed
+--- phù hợp trong tình huống này, day là phương pháp giúp ta không loại bỏ hoàn toàn client mà chỉ "cắt tỉa" đi các node có giá trị quá lớn hoặc quá nhỏ, nói chung là bất thường
+---- sau áp dụng: 0.2826
+## Lệnh
+python server.py --agg_method trim
+python client.py --client_index 0
+python client.py --client_index 1 --attack model
+python client.py --client_index 2 --attack data
+
+model poisoning
+-- method: l2 regulazation
+--- phù hơpj trong tình huống này, penalty từ l2 giúp tác động từ client nhiễm độc được giảm xuống.
+---- sau áp dụng (kết hợp meantrimmed): 0.30
+## Lệnh
+python server.py --agg_method trim --reg_method l2
+python client.py --client_index 0 --reg_method l2
+python client.py --client_index 1 --attack model --reg_method l2
+python client.py --client_index 2 --attack data --reg_method l2
+
+
+phương pháp bảo vệ tổng thể:
+cosine similarity: client nào có sự tương đồng nhất với các client còn lại thì tăng weight để ưu tiên
+---- sau áp dụng (kết hợp l2 và mean trimmed): 0.32
+## Lệnh
+python server.py --agg_method trim_cos --reg_method l2
+python client.py --client_index 0 --reg_method l2
+python client.py --client_index 1 --attack model --reg_method l2
+python client.py --client_index 2 --attack data --reg_method l2
+
+######
+Note: (_, _) = (acc, loss)
+
+defend   Client 0    Client 1    Client 2    Server
+mean (0.5110, 189.4516)  (0.7174, 31.0158)   (0.0.7388, 12.4242)     (0.7402, 57.6451)
+trim    (0.4748, 138.7201)  (0.7164, 41.7406)   (0.7844, 19.8166)   (0.7842, 26.2839)
+triml2  (0.3976, 110.6644)  (0.6140, 21.3976)   (0.7426, 15.0574)   (0.7538, 9.9881)
+
+attack      Client 0    Client 1    Client 2    Server
+
+data0-0   (0.3530, 237.8613)    (0.7060, 37.5020)   (0.7008, 16.9672)   (0.7310, 73.0137)
+data1-0   (0.5010, 153.0032)    (0.7006, 30.7557)   (0.7184, 14.6637)   (0.7500, 57.1158)
+data2-0   (0.4468, 264.4539)    (0.7120, 35.3361)   (0.6774, 23.3135)   (0.7234, 81.4880)
+
+data0-012 (0.2054, 270.1454)    (0.7032, 35.4463)   (0.6936, 14.4910)   (0.7366, 74.3384)
+data1-012 (0.4300, 371.4643)    (0.5470, 107.2137)  (0.6830, 16.1385)   (0.6860, 110.6368)
+data2-012 (0.4654, 193.0082)    (0.6988, 42.1704)   (0.5182, 59.4833)   (0.6138, 121.9774)
+
+model0    (0.4382, 263.7077)    (0.6646, 40.5621)   (0.7180, 19.8870)   (0.7326, 95.4963)
+model1    (0.4286, 277.8181)    (0.6562, 54.4610)   (0.6894, 30.3182)   (0.6902, 130.6952)
+model2    (0.4380, 282.6458)    (0.6624, 59.7970)   (0.6956, 34.1861)   (0.6494, 150.1995)
+
+attack-defense    Client 0    Client 1    Client 2    Server    Hyperparameter (L2 - 0.00005, trim - 0.05)
+
+data0-012-trim    (0.2126, 211.3589)    (0.6898, 35.1035)   (0.7844, 19.9106)   (0.7828, 35.3388)
+data0-012-triml2  (0.2054, 307.2370)    (0.7322, 36.6946)   (0.7868, 18.6949)   (0.7860, 35.5304)    
+data1-012-trim    (0.4350, 361.0038)    (0.5742, 145.2158)  (0.7832, 18.8239)   (0.7826, 50.6362)
+data1-012-triml2  (0.4528, 341.2351)    (0.5882, 141.0369)  (0.7818, 19.2159)   (0.7766, 51.5512)
+data2-012-trim    (0.4572, 192.5046)    (0.7116, 44.2419)   (0.5544, 133.4739)  (0.6394, 95.3509)  
+data2-012-trim12  (0.4316, 323.9939)    (0.7180, 46.2872)   (0.5740, 84.0434)   (0.6314, 79.9137)
+
+model0-triml2     (0.4264, 271.8670)    (0.6936, 59.0393)   (0.7568, 40.5174)   (0.7468, 60.7272)
+model1-triml2     (0.4320, 276.4293)    (0.6884, 100.0227)  (0.7374, 65.4308)    (0.7328, 91.2567)
+model2-triml2     (0.4550, 258.1499)    (0.6806, 90.4595)   (0.7202, 74.3402)   (0.7060, 99.1544)
+
